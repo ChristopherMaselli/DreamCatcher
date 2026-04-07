@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DreamCatcher Oura Callback</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "Segoe UI", sans-serif;
+        background: #0c1218;
+        color: #eef4f5;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at top left, rgba(122, 225, 207, 0.14), transparent 30%),
+          radial-gradient(circle at top right, rgba(247, 187, 124, 0.14), transparent 26%),
+          linear-gradient(160deg, #081116 0%, #0c161d 52%, #11111a 100%);
+      }
+
+      main {
+        width: min(760px, calc(100vw - 32px));
+        padding: 28px;
+        border-radius: 28px;
+        background: rgba(11, 19, 26, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 24px 70px rgba(1, 8, 13, 0.4);
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: clamp(2rem, 5vw, 3rem);
+      }
+
+      p {
+        color: rgba(238, 244, 245, 0.78);
+        line-height: 1.7;
+      }
+
+      .callout {
+        display: grid;
+        gap: 10px;
+        margin: 20px 0;
+        padding: 16px;
+        border-radius: 18px;
+        background: rgba(122, 225, 207, 0.08);
+        border: 1px solid rgba(122, 225, 207, 0.18);
+      }
+
+      .callout strong {
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        font-size: 0.8rem;
+        color: #7ae1cf;
+      }
+
+      code, textarea {
+        font-family: "Cascadia Code", "Consolas", monospace;
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 180px;
+        margin-top: 10px;
+        padding: 14px 16px;
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.04);
+        color: inherit;
+        resize: vertical;
+      }
+
+      button {
+        margin-top: 14px;
+        border: none;
+        border-radius: 999px;
+        padding: 12px 18px;
+        font: inherit;
+        font-weight: 700;
+        background: linear-gradient(120deg, #7ae1cf 0%, #86a7ff 100%);
+        color: #091116;
+        cursor: pointer;
+      }
+
+      .small {
+        font-size: 0.92rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="small">DreamCatcher</p>
+      <h1>Oura Redirect Received</h1>
+      <p>Copy the full URL below and paste it into DreamCatcher's <strong>Finish Connection</strong> field.</p>
+
+      <div class="callout">
+        <strong>Callback URL</strong>
+        <textarea id="callbackUrl" readonly></textarea>
+        <button id="copyButton" type="button">Copy Full URL</button>
+      </div>
+
+      <div class="callout">
+        <strong>Quick Check</strong>
+        <div id="summary"></div>
+      </div>
+    </main>
+
+    <script>
+      const url = window.location.href;
+      const params = new URL(url).searchParams;
+      const code = params.get("code");
+      const state = params.get("state");
+      const error = params.get("error");
+      const output = document.getElementById("callbackUrl");
+      const summary = document.getElementById("summary");
+      const copyButton = document.getElementById("copyButton");
+
+      output.value = url;
+
+      if (error) {
+        summary.textContent = `Oura returned an error: ${error}`;
+      } else if (code && state) {
+        summary.textContent = "Looks good. This URL contains both a code and a state value.";
+      } else {
+        summary.textContent = "This page loaded, but the URL is missing either the code or state query value.";
+      }
+
+      copyButton.addEventListener("click", async () => {
+        await navigator.clipboard.writeText(url);
+        copyButton.textContent = "Copied";
+      });
+    </script>
+  </body>
+</html>

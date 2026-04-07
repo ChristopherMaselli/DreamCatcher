@@ -1,13 +1,14 @@
 import { buildMockSleepSessions } from "../mocks/mockSleepData";
+import type { DashboardPayload, OuraAuthLaunch, ResolvedSource, SourceMode } from "../types/app";
 import { normalizeSleepSessions } from "./sleepNormalizer";
 import { buildWildSuggestion } from "./suggestionHeuristic";
 import {
   connectOura,
   disconnectOura,
+  finishOuraConnect,
   getBackendSnapshot,
   refreshLiveData,
 } from "./tauriBridge";
-import type { DashboardPayload, ResolvedSource, SourceMode } from "../types/app";
 
 const DEFAULT_BEDTIME_CUTOFF_MINUTES = 150;
 
@@ -21,8 +22,12 @@ export async function refreshDashboard(mode: SourceMode): Promise<DashboardPaylo
   return hydrateDashboard(snapshot, mode, true);
 }
 
-export async function signInAndReload(mode: SourceMode): Promise<DashboardPayload> {
-  await connectOura();
+export async function beginSignIn(): Promise<OuraAuthLaunch> {
+  return connectOura();
+}
+
+export async function finishSignInAndReload(mode: SourceMode, callbackUrl: string): Promise<DashboardPayload> {
+  await finishOuraConnect(callbackUrl);
   return loadDashboard(mode);
 }
 
@@ -59,10 +64,7 @@ async function hydrateDashboard(
     }
   }
 
-  const sessions =
-    source === "mock"
-      ? buildMockSleepSessions()
-      : nextSnapshot.cache?.sessions ?? [];
+  const sessions = source === "mock" ? buildMockSleepSessions() : nextSnapshot.cache?.sessions ?? [];
   const days = normalizeSleepSessions(sessions, source);
   const suggestion = buildWildSuggestion(days, {
     includedDayIds: days.map((day) => day.id),
@@ -88,7 +90,7 @@ function describeLiveModeStatus(snapshot: Awaited<ReturnType<typeof getBackendSn
   }
 
   if (!snapshot.auth.connected) {
-    return "Live mode is active, but Oura is not connected yet. Connect Oura or press Use Mock Week if you want the demo data.";
+    return "Live mode is active, but Oura is not connected yet. Start the hosted Oura sign-in, let the browser land on your callback page, then paste the full callback URL back into DreamCatcher.";
   }
 
   return "No live Oura sleep data is cached yet. Press Refresh Data after connecting, or switch to Use Mock Week.";

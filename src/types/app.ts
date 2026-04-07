@@ -23,6 +23,11 @@ export interface BackendSnapshot {
   cache?: CachedSleepPayload | null;
 }
 
+export interface OuraAuthLaunch {
+  authorizationUrl: string;
+  redirectUri: string;
+}
+
 export interface TimelineSegment {
   stage: SleepStage;
   startTime: string;

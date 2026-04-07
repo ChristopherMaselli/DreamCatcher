@@ -54,6 +54,13 @@ pub struct AppSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthLaunchPayload {
+    pub authorization_url: String,
+    pub redirect_uri: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenBundle {
     pub access_token: String,
     pub refresh_token: Option<String>,

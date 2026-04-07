@@ -8,18 +8,21 @@ DreamCatcher is a Windows-first Tauri desktop MVP for reviewing the last 7 night
 - React
 - TypeScript
 - Rust backend for OAuth, token storage, and live Oura fetches
+- GitHub Pages for the tiny hosted Oura callback page
 
 ## Project Plan Summary
 
 1. Use a local Tauri desktop shell so the app stays private and runs entirely on your machine.
-2. Keep Oura OAuth and token handling in Rust so secrets do not need to live in the browser layer.
-3. Fetch recent sleep documents from Oura, cache them locally, and normalize them in TypeScript.
-4. Infer REM blocks from the 5-minute stage timeline, then highlight the last two before final wake.
-5. Use a simple heuristic over the last 7 nights to suggest a manual WILD wake window.
-6. Keep live mode empty by default when no real data exists, and only show the mock week when you explicitly switch to it.
+2. Keep Oura token handling in Rust so secrets do not need to live in the browser layer.
+3. Use a hosted HTTPS callback page because Oura rejected the localhost redirect flow for this project.
+4. Fetch recent sleep documents from Oura, cache them locally, and normalize them in TypeScript.
+5. Infer REM blocks from the 5-minute stage timeline, then highlight the last two before final wake.
+6. Use a simple heuristic over the last 7 nights to suggest a manual WILD wake window.
+7. Keep live mode empty by default when no real data exists, and only show the mock week when you explicitly switch to it.
 
 ## Folder Structure
 
+- `docs/oura-callback.html` hosted callback page for Oura OAuth on GitHub Pages
 - `src/`
 - `src/components/` reusable dashboard UI pieces
 - `src/services/` bridge, normalization, REM extraction, and WILD heuristic logic
@@ -37,9 +40,20 @@ DreamCatcher is a Windows-first Tauri desktop MVP for reviewing the last 7 night
 - Tauri Windows prerequisites
 - Microsoft C++ Build Tools with Desktop development with C++
 - Microsoft Edge WebView2 runtime
+- A public GitHub repo with GitHub Pages enabled
 
 The official Tauri Windows prerequisites guide is here:
 https://v2.tauri.app/start/prerequisites/
+
+## GitHub Pages Callback Setup
+
+1. Push this repo to GitHub.
+2. In your GitHub repo settings, open `Pages`.
+3. Set the source to `Deploy from a branch`.
+4. Choose branch `main` and folder `/docs`.
+5. Save it and wait for GitHub Pages to publish.
+6. Your callback page should then be available at:
+   `https://yourusername.github.io/DreamCatcher/oura-callback.html`
 
 ## Environment Variables
 
@@ -48,7 +62,7 @@ Create a `.env` file in the project root and paste your Oura values there.
 ```env
 OURA_CLIENT_ID=your_oura_client_id
 OURA_CLIENT_SECRET=your_oura_client_secret
-OURA_REDIRECT_URI=https://127.0.0.1:37321/callback
+OURA_REDIRECT_URI=https://yourusername.github.io/DreamCatcher/oura-callback.html
 OURA_SCOPES=daily
 ```
 
@@ -56,16 +70,19 @@ OURA_SCOPES=daily
 
 - `OURA_CLIENT_ID`: your Oura OAuth application client ID
 - `OURA_CLIENT_SECRET`: your Oura OAuth application client secret
-- `OURA_REDIRECT_URI`: must exactly match the redirect URI registered in the Oura developer portal
+- `OURA_REDIRECT_URI`: must exactly match the hosted callback URL registered in the Oura developer portal
 - `OURA_SCOPES`: optional, defaults to `daily`
 
 ## Oura Developer Setup
 
 1. Sign in to the Oura developer portal.
 2. Create an OAuth application.
-3. Register `https://127.0.0.1:37321/callback` as the redirect URI, or choose another localhost URI and use that exact value in `.env`.
-4. Copy the client ID and client secret into your root `.env` file.
-5. Start DreamCatcher and click `Connect Oura`.
+3. Use your GitHub repo URL for the website field.
+4. Use your public `PRIVACY.md` and `TERMS.md` GitHub URLs for the policy fields.
+5. Register your GitHub Pages callback URL, such as `https://yourusername.github.io/DreamCatcher/oura-callback.html`, as the redirect URI.
+6. Copy the client ID and client secret into your root `.env` file.
+7. Start DreamCatcher and click `Start Oura Sign-in`.
+8. After Oura redirects to the hosted callback page, copy the full browser URL and paste it back into DreamCatcher.
 
 ## Where To Paste Your Oura Credentials
 
@@ -105,8 +122,10 @@ Tauri will place the Windows build artifacts in `src-tauri/target/`.
 
 ## How DreamCatcher Works
 
-- The Rust backend opens the Oura OAuth page in your system browser.
-- Oura redirects back to a temporary localhost listener inside the app. If you use an HTTPS localhost redirect, your browser may show a local certificate warning the first time because DreamCatcher generates a device-local callback certificate at runtime.
+- The Rust backend builds the Oura authorize URL and opens it in your system browser.
+- Oura redirects to the hosted callback page under `docs/oura-callback.html` on GitHub Pages.
+- The callback page shows the full redirected URL so you can copy it.
+- DreamCatcher verifies the pasted callback URL, checks the saved OAuth state, and exchanges the code for tokens.
 - Tokens are stored in the OS credential store through the `keyring` crate.
 - Cached live sleep documents are stored in the app data directory as JSON.
 - The React app normalizes recent sleep sessions, picks the main overnight session per day, groups contiguous REM epochs, and highlights the last two groups before wake.
@@ -123,6 +142,7 @@ Tauri will place the Windows build artifacts in `src-tauri/target/`.
 - The bedtime cutoff slider excludes late after-midnight starts from the estimate instead of weighting them gradually.
 - The current heuristic uses the last 7 nights only and does not learn from dream outcomes yet.
 - Disconnect currently clears the stored token and cached live sleep data from the app.
+- The hosted callback flow requires a manual paste step because Oura would not accept the original localhost redirect for this project.
 
 ## Future Improvements
 
@@ -133,9 +153,12 @@ Tauri will place the Windows build artifacts in `src-tauri/target/`.
 
 ## Key Files
 
+- `docs/oura-callback.html`
 - `src/App.tsx`
+- `src/components/OuraConnectionStatus.tsx`
 - `src/components/SelectedSleepPanel.tsx`
 - `src/components/DashboardCalendar.tsx`
+- `src/services/dataSource.ts`
 - `src/services/sleepNormalizer.ts`
 - `src/services/suggestionHeuristic.ts`
 - `src/mocks/mockSleepData.ts`
@@ -147,5 +170,3 @@ Tauri will place the Windows build artifacts in `src-tauri/target/`.
 ## Notes For Live Oura Data
 
 DreamCatcher is intentionally defensive about the live Oura payload shape. The Rust side stores a permissive subset of sleep document fields, and the TypeScript adapter isolates the REM-stage interpretation so it is easy to adjust if Oura changes or clarifies field names in the future.
-
-

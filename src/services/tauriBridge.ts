@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { BackendSnapshot } from "../types/app";
+import type { BackendSnapshot, OuraAuthLaunch } from "../types/app";
 
 export async function getBackendSnapshot(): Promise<BackendSnapshot> {
   if (!isTauriRuntime()) {
@@ -17,12 +17,20 @@ export async function refreshLiveData(): Promise<BackendSnapshot> {
   return invoke<BackendSnapshot>("refresh_live_data");
 }
 
-export async function connectOura(): Promise<BackendSnapshot> {
+export async function connectOura(): Promise<OuraAuthLaunch> {
   if (!isTauriRuntime()) {
     throw new Error("Oura sign-in is only available from the Tauri desktop app.");
   }
 
-  return invoke<BackendSnapshot>("connect_oura");
+  return invoke<OuraAuthLaunch>("connect_oura");
+}
+
+export async function finishOuraConnect(callbackUrl: string): Promise<BackendSnapshot> {
+  if (!isTauriRuntime()) {
+    throw new Error("Oura sign-in is only available from the Tauri desktop app.");
+  }
+
+  return invoke<BackendSnapshot>("finish_oura_connect", { callbackUrl });
 }
 
 export async function disconnectOura(): Promise<BackendSnapshot> {

@@ -6,7 +6,7 @@ use crate::{
     config::AppEnv,
     oura,
     storage,
-    types::{AppSnapshot, AuthStatus},
+    types::{AppSnapshot, AuthStatus, AuthLaunchPayload},
 };
 
 #[tauri::command]
@@ -15,9 +15,15 @@ pub async fn get_app_snapshot(app: AppHandle) -> Result<AppSnapshot, String> {
 }
 
 #[tauri::command]
-pub async fn connect_oura(app: AppHandle) -> Result<AppSnapshot, String> {
+pub async fn connect_oura() -> Result<AuthLaunchPayload, String> {
     let live_env = AppEnv::load().require_live().map_err(format_error)?;
-    let tokens = auth::complete_oauth(&live_env)
+    auth::begin_oauth(&live_env).map_err(format_error)
+}
+
+#[tauri::command]
+pub async fn finish_oura_connect(app: AppHandle, callback_url: String) -> Result<AppSnapshot, String> {
+    let live_env = AppEnv::load().require_live().map_err(format_error)?;
+    let tokens = auth::complete_oauth_from_callback(&live_env, &callback_url)
         .await
         .map_err(format_error)?;
     storage::save_tokens(&tokens).map_err(format_error)?;

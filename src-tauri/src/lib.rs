@@ -17,6 +17,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_app_snapshot,
             commands::connect_oura,
+            commands::finish_oura_connect,
             commands::disconnect_oura,
             commands::refresh_live_data,
         ])

@@ -6,22 +6,24 @@ import { SelectedSleepPanel } from "./components/SelectedSleepPanel";
 import { SourceModeToggle } from "./components/SourceModeToggle";
 import { WildSuggestionPanel } from "./components/WildSuggestionPanel";
 import {
+  beginSignIn,
   disconnectAndReload,
+  finishSignInAndReload,
   loadDashboard,
   refreshDashboard,
-  signInAndReload,
 } from "./services/dataSource";
 import {
   buildWildSuggestion,
   canUseDayForSuggestion,
 } from "./services/suggestionHeuristic";
-import type { DashboardPayload, SourceMode } from "./types/app";
+import type { DashboardPayload, OuraAuthLaunch, SourceMode } from "./types/app";
 
 const SOURCE_MODE_STORAGE_KEY = "dreamcatcher-source-mode";
 const BEDTIME_CUTOFF_STORAGE_KEY = "dreamcatcher-bedtime-cutoff";
 const DEFAULT_BEDTIME_CUTOFF_MINUTES = 150;
 
 type DashboardTab = "tonight" | "history";
+type BusyState = "loading" | "refreshing" | "starting-connect" | "finishing-connect" | "disconnecting" | null;
 
 export default function App() {
   const [mode, setMode] = useState<SourceMode>(readStoredMode());
@@ -30,8 +32,10 @@ export default function App() {
   const [selectedDayId, setSelectedDayId] = useState<string | null>(null);
   const [includedDayMap, setIncludedDayMap] = useState<Record<string, boolean>>({});
   const [bedtimeCutoffMinutes, setBedtimeCutoffMinutes] = useState<number>(readStoredCutoff());
-  const [busyState, setBusyState] = useState<"loading" | "refreshing" | "connecting" | "disconnecting" | null>("loading");
+  const [busyState, setBusyState] = useState<BusyState>("loading");
   const [error, setError] = useState<string | null>(null);
+  const [authLaunch, setAuthLaunch] = useState<OuraAuthLaunch | null>(null);
+  const [callbackUrl, setCallbackUrl] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -46,6 +50,10 @@ export default function App() {
 
         startTransition(() => {
           setPayload(nextPayload);
+          if (nextPayload.snapshot.auth.connected) {
+            setAuthLaunch(null);
+            setCallbackUrl("");
+          }
           setBusyState(null);
         });
       })
@@ -141,13 +149,31 @@ export default function App() {
   }
 
   async function handleConnect() {
-    setBusyState("connecting");
+    setBusyState("starting-connect");
     setError(null);
 
     try {
-      const nextPayload = await signInAndReload(mode);
+      const launch = await beginSignIn();
+      startTransition(() => {
+        setAuthLaunch(launch);
+        setBusyState(null);
+      });
+    } catch (reason) {
+      setError(asMessage(reason));
+      setBusyState(null);
+    }
+  }
+
+  async function handleFinishConnect() {
+    setBusyState("finishing-connect");
+    setError(null);
+
+    try {
+      const nextPayload = await finishSignInAndReload(mode, callbackUrl);
       startTransition(() => {
         setPayload(nextPayload);
+        setAuthLaunch(null);
+        setCallbackUrl("");
         setBusyState(null);
       });
     } catch (reason) {
@@ -164,6 +190,8 @@ export default function App() {
       const nextPayload = await disconnectAndReload(mode);
       startTransition(() => {
         setPayload(nextPayload);
+        setAuthLaunch(null);
+        setCallbackUrl("");
         setBusyState(null);
       });
     } catch (reason) {
@@ -193,8 +221,12 @@ export default function App() {
         />
         <OuraConnectionStatus
           snapshot={payload?.snapshot ?? emptySnapshot}
-          busy={busyState === "connecting" || busyState === "disconnecting"}
+          busyState={busyState}
+          authLaunch={authLaunch}
+          callbackUrl={callbackUrl}
           onConnect={handleConnect}
+          onCallbackUrlChange={setCallbackUrl}
+          onCompleteConnect={handleFinishConnect}
           onDisconnect={handleDisconnect}
         />
       </section>
@@ -224,11 +256,7 @@ export default function App() {
             onIncludedChange={handleIncludedChange}
           />
           <div className="dashboard-stack">
-            <SourceModeToggle
-              mode={mode}
-              busy={isBusy}
-              onModeChange={handleModeChange}
-            />
+            <SourceModeToggle mode={mode} busy={isBusy} onModeChange={handleModeChange} />
             <section className="panel">
               <div className="panel__header">
                 <div>
@@ -262,11 +290,7 @@ export default function App() {
             onCutoffChange={handleCutoffChange}
           />
           <div className="dashboard-stack">
-            <SourceModeToggle
-              mode={mode}
-              busy={isBusy}
-              onModeChange={handleModeChange}
-            />
+            <SourceModeToggle mode={mode} busy={isBusy} onModeChange={handleModeChange} />
             <section className="panel">
               <div className="panel__header">
                 <div>

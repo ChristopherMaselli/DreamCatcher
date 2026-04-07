@@ -40,7 +40,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -234,6 +235,68 @@ input {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+}
+
+.auth-flow {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.auth-callout {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: rgba(122, 225, 207, 0.08);
+  border: 1px solid rgba(122, 225, 207, 0.18);
+}
+
+.auth-callout strong {
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+}
+
+.auth-callout span {
+  color: var(--text-muted);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.auth-callout--muted {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.stack-field {
+  display: grid;
+  gap: 10px;
+}
+
+.stack-field span {
+  font-weight: 600;
+}
+
+.text-input {
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  resize: vertical;
+}
+
+.text-input:focus {
+  outline: 2px solid rgba(122, 225, 207, 0.28);
+  outline-offset: 2px;
+  border-color: rgba(122, 225, 207, 0.3);
+}
+
+.text-input--multiline {
+  min-height: 112px;
 }
 
 .button-row {
@@ -583,3 +646,4 @@ input {
     grid-template-columns: 1fr;
   }
 }
+
