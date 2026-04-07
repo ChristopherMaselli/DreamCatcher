@@ -1,6 +1,7 @@
 use std::{
     io::{Read, Write},
-    net::{TcpListener, TcpStream},
+    net::{IpAddr, TcpListener, TcpStream},
+    sync::Arc,
     thread,
     time::{Duration, Instant},
 };
@@ -8,7 +9,12 @@ use std::{
 use anyhow::{anyhow, bail, Context, Result};
 use chrono::{Duration as ChronoDuration, Utc};
 use rand::{distributions::Alphanumeric, Rng};
+use rcgen::{CertificateParams, KeyPair, SanType};
 use reqwest::Client;
+use rustls::{
+    pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
+    ServerConfig, ServerConnection, StreamOwned,
+};
 use tracing::warn;
 use url::Url;
 
@@ -123,7 +129,20 @@ fn build_authorize_url(env: &LiveEnv, state: &str) -> Result<Url> {
     Ok(url)
 }
 
-fn bind_callback_listener(redirect: &Url) -> Result<TcpListener> {
+enum CallbackListener {
+    Http(TcpListener),
+    Https {
+        listener: TcpListener,
+        tls_config: Arc<ServerConfig>,
+    },
+}
+
+fn bind_callback_listener(redirect: &Url) -> Result<CallbackListener> {
+    let scheme = redirect.scheme();
+    if scheme != "http" && scheme != "https" {
+        bail!("DreamCatcher currently supports http://localhost and https://localhost redirect URIs only.");
+    }
+
     let host = redirect.host_str().unwrap_or_default();
     if host != "127.0.0.1" && host != "localhost" {
         bail!("DreamCatcher currently supports localhost redirect URIs only.");
@@ -133,72 +152,43 @@ fn bind_callback_listener(redirect: &Url) -> Result<TcpListener> {
         .port_or_known_default()
         .context("The Oura redirect URI must include a localhost port")?;
     let bind_host = if host == "localhost" { "127.0.0.1" } else { host };
+    let listener = TcpListener::bind((bind_host, port))
+        .with_context(|| format!("Could not bind the local OAuth callback listener on {bind_host}:{port}"))?;
 
-    TcpListener::bind((bind_host, port))
-        .with_context(|| format!("Could not bind the local OAuth callback listener on {bind_host}:{port}"))
+    if scheme == "https" {
+        Ok(CallbackListener::Https {
+            listener,
+            tls_config: build_tls_server_config()?,
+        })
+    } else {
+        Ok(CallbackListener::Http(listener))
+    }
 }
 
 fn wait_for_callback(
-    listener: TcpListener,
+    listener: CallbackListener,
     expected_path: String,
     expected_state: String,
 ) -> Result<String> {
-    listener.set_nonblocking(true)?;
+    listener.socket().set_nonblocking(true)?;
     let deadline = Instant::now() + Duration::from_secs(CALLBACK_TIMEOUT_SECONDS);
 
     loop {
         match listener.accept() {
-            Ok((mut stream, _address)) => {
-                let path_and_query = read_request_path(&mut stream)?;
-                let callback_url = Url::parse(&format!("http://localhost{path_and_query}"))
-                    .context("The Oura callback URL was malformed")?;
+            Ok(mut stream) => {
+                let outcome = match &mut stream {
+                    AcceptedStream::Http(inner) => {
+                        process_callback_stream(inner, &expected_path, &expected_state)?
+                    }
+                    AcceptedStream::Https(inner) => {
+                        process_callback_stream(inner, &expected_path, &expected_state)?
+                    }
+                };
 
-                if callback_url.path() != expected_path {
-                    write_html_response(
-                        &mut stream,
-                        "404 Not Found",
-                        "<h1>DreamCatcher</h1><p>Unexpected callback path.</p>",
-                    )?;
-                    continue;
+                match outcome {
+                    CallbackOutcome::Continue => continue,
+                    CallbackOutcome::Authorized(code) => return Ok(code),
                 }
-
-                let query = callback_url.query_pairs().into_owned().collect::<Vec<_>>();
-                if let Some((_, error)) = query.iter().find(|(key, _)| key == "error") {
-                    write_html_response(
-                        &mut stream,
-                        "400 Bad Request",
-                        "<h1>DreamCatcher</h1><p>Oura returned an authorization error. You can close this tab and try again.</p>",
-                    )?;
-                    bail!("Oura authorization error: {error}");
-                }
-
-                let state = query
-                    .iter()
-                    .find(|(key, _)| key == "state")
-                    .map(|(_, value)| value.to_string())
-                    .unwrap_or_default();
-                if state != expected_state {
-                    write_html_response(
-                        &mut stream,
-                        "400 Bad Request",
-                        "<h1>DreamCatcher</h1><p>The callback state did not match. Please retry the sign-in.</p>",
-                    )?;
-                    bail!("The Oura OAuth state did not match the original request.");
-                }
-
-                let code = query
-                    .iter()
-                    .find(|(key, _)| key == "code")
-                    .map(|(_, value)| value.to_string())
-                    .context("The Oura callback did not include an authorization code")?;
-
-                write_html_response(
-                    &mut stream,
-                    "200 OK",
-                    "<h1>DreamCatcher</h1><p>Oura is connected. You can close this window and return to the app.</p>",
-                )?;
-
-                return Ok(code);
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 if Instant::now() >= deadline {
@@ -212,9 +202,94 @@ fn wait_for_callback(
     }
 }
 
-fn read_request_path(stream: &mut TcpStream) -> Result<String> {
-    stream.set_read_timeout(Some(Duration::from_secs(3))).ok();
+enum AcceptedStream {
+    Http(TcpStream),
+    Https(StreamOwned<ServerConnection, TcpStream>),
+}
 
+enum CallbackOutcome {
+    Continue,
+    Authorized(String),
+}
+
+impl CallbackListener {
+    fn socket(&self) -> &TcpListener {
+        match self {
+            Self::Http(listener) => listener,
+            Self::Https { listener, .. } => listener,
+        }
+    }
+
+    fn accept(&self) -> Result<AcceptedStream, std::io::Error> {
+        match self {
+            Self::Http(listener) => listener.accept().map(|(stream, _)| AcceptedStream::Http(stream)),
+            Self::Https { listener, tls_config } => {
+                let (stream, _) = listener.accept()?;
+                let connection = ServerConnection::new(tls_config.clone()).map_err(std::io::Error::other)?;
+                Ok(AcceptedStream::Https(StreamOwned::new(connection, stream)))
+            }
+        }
+    }
+}
+
+fn process_callback_stream<S: Read + Write>(
+    stream: &mut S,
+    expected_path: &str,
+    expected_state: &str,
+) -> Result<CallbackOutcome> {
+    let path_and_query = read_request_path(stream)?;
+    let callback_url = Url::parse(&format!("http://localhost{path_and_query}"))
+        .context("The Oura callback URL was malformed")?;
+
+    if callback_url.path() != expected_path {
+        write_html_response(
+            stream,
+            "404 Not Found",
+            "<h1>DreamCatcher</h1><p>Unexpected callback path.</p>",
+        )?;
+        return Ok(CallbackOutcome::Continue);
+    }
+
+    let query = callback_url.query_pairs().into_owned().collect::<Vec<_>>();
+    if let Some((_, error)) = query.iter().find(|(key, _)| key == "error") {
+        write_html_response(
+            stream,
+            "400 Bad Request",
+            "<h1>DreamCatcher</h1><p>Oura returned an authorization error. You can close this tab and try again.</p>",
+        )?;
+        bail!("Oura authorization error: {error}");
+    }
+
+    let state = query
+        .iter()
+        .find(|(key, _)| key == "state")
+        .map(|(_, value)| value.to_string())
+        .unwrap_or_default();
+    if state != expected_state {
+        write_html_response(
+            stream,
+            "400 Bad Request",
+            "<h1>DreamCatcher</h1><p>The callback state did not match. Please retry the sign-in.</p>",
+        )?;
+        bail!("The Oura OAuth state did not match the original request.");
+    }
+
+    let code = query
+        .iter()
+        .find(|(key, _)| key == "code")
+        .map(|(_, value)| value.to_string())
+        .context("The Oura callback did not include an authorization code")?;
+
+    write_html_response(
+        stream,
+        "200 OK",
+        "<h1>DreamCatcher</h1><p>Oura is connected. You can close this window and return to the app.</p>",
+    )?;
+
+    Ok(CallbackOutcome::Authorized(code))
+}
+
+fn read_request_path<R: Read>(stream: &mut R) -> Result<String> {
     let mut buffer = [0_u8; 8192];
     let bytes = stream.read(&mut buffer)?;
     let request = String::from_utf8_lossy(&buffer[..bytes]);
@@ -230,7 +305,7 @@ fn read_request_path(stream: &mut TcpStream) -> Result<String> {
         .context("The local OAuth callback did not include a path")
 }
 
-fn write_html_response(stream: &mut TcpStream, status: &str, body: &str) -> Result<()> {
+fn write_html_response<W: Write>(stream: &mut W, status: &str, body: &str) -> Result<()> {
     let response = format!(
         "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         body.as_bytes().len(),
@@ -239,6 +314,27 @@ fn write_html_response(stream: &mut TcpStream, status: &str, body: &str) -> Resu
     stream.write_all(response.as_bytes())?;
     stream.flush()?;
     Ok(())
+}
+
+fn build_tls_server_config() -> Result<Arc<ServerConfig>> {
+    let mut params = CertificateParams::new(vec!["localhost".to_string()])?;
+    params
+        .subject_alt_names
+        .push(SanType::IpAddress("127.0.0.1".parse::<IpAddr>()?));
+
+    let signing_key = KeyPair::generate().context("Could not generate a local TLS key for the HTTPS OAuth callback")?;
+    let certificate = params
+        .self_signed(&signing_key)
+        .context("Could not generate a local TLS certificate for the HTTPS OAuth callback")?;
+
+    let cert_chain = vec![CertificateDer::from(certificate.der().clone())];
+    let private_key = PrivateKeyDer::from(PrivatePkcs8KeyDer::from(signing_key.serialize_der()));
+    let server_config = ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(cert_chain, private_key)
+        .context("Could not build the local HTTPS OAuth server")?;
+
+    Ok(Arc::new(server_config))
 }
 
 fn build_state_token() -> String {
@@ -263,3 +359,4 @@ fn parse_scope_list(scope: Option<&str>, fallback_scopes: &[String]) -> Vec<Stri
         scopes
     }
 }
+

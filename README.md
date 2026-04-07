@@ -48,7 +48,7 @@ Create a `.env` file in the project root and paste your Oura values there.
 ```env
 OURA_CLIENT_ID=your_oura_client_id
 OURA_CLIENT_SECRET=your_oura_client_secret
-OURA_REDIRECT_URI=http://127.0.0.1:37321/callback
+OURA_REDIRECT_URI=https://127.0.0.1:37321/callback
 OURA_SCOPES=daily
 ```
 
@@ -63,7 +63,7 @@ OURA_SCOPES=daily
 
 1. Sign in to the Oura developer portal.
 2. Create an OAuth application.
-3. Register `http://127.0.0.1:37321/callback` as the redirect URI, or choose another localhost URI and use that exact value in `.env`.
+3. Register `https://127.0.0.1:37321/callback` as the redirect URI, or choose another localhost URI and use that exact value in `.env`.
 4. Copy the client ID and client secret into your root `.env` file.
 5. Start DreamCatcher and click `Connect Oura`.
 
@@ -106,7 +106,7 @@ Tauri will place the Windows build artifacts in `src-tauri/target/`.
 ## How DreamCatcher Works
 
 - The Rust backend opens the Oura OAuth page in your system browser.
-- Oura redirects back to a temporary localhost listener inside the app.
+- Oura redirects back to a temporary localhost listener inside the app. If you use an HTTPS localhost redirect, your browser may show a local certificate warning the first time because DreamCatcher generates a device-local callback certificate at runtime.
 - Tokens are stored in the OS credential store through the `keyring` crate.
 - Cached live sleep documents are stored in the app data directory as JSON.
 - The React app normalizes recent sleep sessions, picks the main overnight session per day, groups contiguous REM epochs, and highlights the last two groups before wake.
@@ -147,4 +147,5 @@ Tauri will place the Windows build artifacts in `src-tauri/target/`.
 ## Notes For Live Oura Data
 
 DreamCatcher is intentionally defensive about the live Oura payload shape. The Rust side stores a permissive subset of sleep document fields, and the TypeScript adapter isolates the REM-stage interpretation so it is easy to adjust if Oura changes or clarifies field names in the future.
+
 
