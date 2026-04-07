@@ -1,0 +1,11 @@
+node_modules/
+dist/
+target/
+src-tauri/target/
+.env
+.env.local
+.env.*
+!.env.example
+.vite/
+*.log
+*.tmp

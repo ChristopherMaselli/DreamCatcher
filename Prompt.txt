@@ -1,0 +1,164 @@
+You are building a complete MVP desktop app for Windows called **DreamCatcher**.
+
+Goal:
+Create a local desktop application that signs into the Oura API, fetches my recent sleep data, and shows a dashboard calendar for the last 7 days. Each day box should highlight the **last 2 REM cycles before final wake-up** for that sleep session. This is intended to help me manually estimate the best wake time for a WILD lucid dreaming attempt.
+
+Important constraints:
+
+* This is for **personal use only**, single-user.
+* Build it as a **desktop app**, not a hosted web app.
+* Use a stack that works well on Windows.
+* Prefer **Tauri + React + TypeScript** for the desktop shell and UI.
+* The app must be runnable locally in development and buildable for Windows.
+* Keep the UI clean, dark-themed, and simple.
+* Assume I have an active Oura membership and want to use the official Oura developer platform and OAuth flow.
+* Use environment variables for secrets and document setup clearly.
+* Code should be production-quality and organized, but MVP-focused.
+
+Primary features:
+
+1. **Oura sign-in**
+
+   * Implement Oura OAuth 2 login.
+   * Store tokens securely enough for a local desktop MVP.
+   * Support refresh tokens if available.
+   * Provide a “connected / disconnected” status in the UI.
+
+2. **Fetch sleep data**
+
+   * Pull the last 7 days of sleep-related data from Oura.
+   * Use the official Oura API endpoints and data model where possible.
+   * If multiple sleep sessions exist for a day, choose the main overnight sleep session.
+   * Normalize all timestamps carefully.
+
+3. **7-day dashboard calendar**
+
+   * Show a 7-day grid or row of day cards, one card per day.
+   * Each day card should display:
+
+     * date
+     * bedtime / sleep start
+     * final wake time
+     * total sleep time
+     * the **last 2 REM cycles before wake-up**
+   * The REM cycles should be visually represented on a timeline inside the card.
+   * If exact REM cycle segmentation is not directly returned by Oura, infer the last 2 REM periods from the available sleep stage timeline data and clearly document the assumption in code comments and README.
+
+4. **Timeline visualization**
+
+   * For each day card, show a horizontal sleep timeline.
+   * Use stage colors or labels for Awake / Light / Deep / REM.
+   * Clearly highlight the final wake-up point.
+   * Clearly outline the final two REM segments before wake-up.
+
+5. **WILD helper panel**
+
+   * On the main screen, include a summary panel:
+
+     * “Suggested manual WILD wake window”
+     * derived from the last 7 days by looking at the timing of the final 2 REM cycles before waking
+   * This does NOT need advanced AI.
+   * Use a simple heuristic:
+
+     * identify the last 2 REM segments for each night
+     * compute their typical time relative to sleep onset and final wake
+     * show a suggested wake window for tonight
+   * Show a plain-English explanation of how the suggestion was calculated.
+
+6. **Fallback behavior**
+
+   * If Oura data is missing or incomplete for a day, show a graceful placeholder.
+   * If stage granularity is insufficient, say so in the UI and still display the best available summary.
+
+Technical requirements:
+
+* Use:
+
+  * **Tauri**
+  * **React**
+  * **TypeScript**
+  * a lightweight chart/timeline approach
+* Keep business logic separated from UI components.
+* Create a clean project structure.
+* Add type definitions for Oura responses.
+* Include a service layer for:
+
+  * auth
+  * Oura API fetches
+  * sleep normalization
+  * REM segment extraction
+  * suggestion heuristic
+* Add basic logging and error handling.
+* Use a local persistence layer for tokens and cached sleep data.
+* Add a manual “Refresh data” button.
+
+What I want from you before coding:
+
+1. First inspect and summarize the project plan.
+2. Propose the folder structure.
+3. List the exact environment variables needed.
+4. Then implement the full MVP.
+5. Then provide setup and run instructions for Windows development.
+
+Implementation details:
+
+* Create reusable components for:
+
+  * App shell
+  * Oura connection status
+  * 7-day calendar/day cards
+  * sleep timeline
+  * WILD suggestion panel
+* Use mock data mode if Oura credentials are not configured yet.
+* Make it easy to swap from mock mode to live mode.
+* Include at least one realistic mocked 7-day dataset for UI development.
+* Include comments where Oura API assumptions are being made.
+
+Data interpretation requirements:
+
+* I want the app to show the **last 2 REM cycles before wake-up**.
+* If Oura provides sleep stage data in epochs/timestamps rather than named “cycles,” derive REM blocks by grouping contiguous REM segments.
+* Then select the final 2 REM blocks before the final awakening.
+* If there is only 1 REM block, show 1.
+* If there are none, show none and explain.
+
+UX requirements:
+
+* The app should feel like a polished personal dashboard, not a hacky dev tool.
+* Dark UI
+* Clean spacing
+* Clear labels
+* No clutter
+* Designed for desktop monitor use first
+
+Deliverables:
+
+* Full codebase
+* README with:
+
+  * prerequisites
+  * Oura developer setup steps
+  * env vars
+  * how to run dev mode
+  * how to build the Windows desktop app
+* A short section called “Known assumptions and limitations”
+* A section called “Future improvements” with:
+
+  * notifications / alarm integration
+  * longer history
+  * per-user learning
+  * dream outcome logging
+
+Coding behavior:
+
+* Do not stop after scaffolding.
+* Implement the actual MVP.
+* Make best-effort decisions without asking me unnecessary questions.
+* If an Oura API detail is uncertain, check the official docs, implement the most likely structure, and clearly isolate those assumptions in a single adapter module.
+* Favor completion over perfection.
+
+After implementation:
+
+* Show me the key files created.
+* Show me how to start the app locally.
+* Tell me exactly where I need to paste my Oura client ID / secret / redirect URI.
