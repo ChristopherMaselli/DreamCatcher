@@ -34,6 +34,7 @@ export default function App() {
   const [bedtimeCutoffMinutes, setBedtimeCutoffMinutes] = useState<number>(readStoredCutoff());
   const [busyState, setBusyState] = useState<BusyState>("loading");
   const [error, setError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [authLaunch, setAuthLaunch] = useState<OuraAuthLaunch | null>(null);
   const [callbackUrl, setCallbackUrl] = useState("");
 
@@ -41,6 +42,7 @@ export default function App() {
     let active = true;
     setBusyState("loading");
     setError(null);
+    setAuthError(null);
 
     loadDashboard(mode)
       .then((nextPayload) => {
@@ -151,6 +153,7 @@ export default function App() {
   async function handleConnect() {
     setBusyState("starting-connect");
     setError(null);
+    setAuthError(null);
 
     try {
       const launch = await beginSignIn();
@@ -159,7 +162,7 @@ export default function App() {
         setBusyState(null);
       });
     } catch (reason) {
-      setError(asMessage(reason));
+      setAuthError(asMessage(reason));
       setBusyState(null);
     }
   }
@@ -167,6 +170,7 @@ export default function App() {
   async function handleFinishConnect() {
     setBusyState("finishing-connect");
     setError(null);
+    setAuthError(null);
 
     try {
       const nextPayload = await finishSignInAndReload(mode, callbackUrl);
@@ -177,7 +181,7 @@ export default function App() {
         setBusyState(null);
       });
     } catch (reason) {
-      setError(asMessage(reason));
+      setAuthError(asMessage(reason));
       setBusyState(null);
     }
   }
@@ -185,6 +189,7 @@ export default function App() {
   async function handleDisconnect() {
     setBusyState("disconnecting");
     setError(null);
+    setAuthError(null);
 
     try {
       const nextPayload = await disconnectAndReload(mode);
@@ -224,6 +229,7 @@ export default function App() {
           busyState={busyState}
           authLaunch={authLaunch}
           callbackUrl={callbackUrl}
+          authError={authError}
           onConnect={handleConnect}
           onCallbackUrlChange={setCallbackUrl}
           onCompleteConnect={handleFinishConnect}

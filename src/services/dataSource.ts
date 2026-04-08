@@ -27,13 +27,20 @@ export async function beginSignIn(): Promise<OuraAuthLaunch> {
 }
 
 export async function finishSignInAndReload(mode: SourceMode, callbackUrl: string): Promise<DashboardPayload> {
-  await finishOuraConnect(callbackUrl);
-  return loadDashboard(mode);
+  const snapshot = await finishOuraConnect(callbackUrl);
+
+  if (!snapshot.auth.connected) {
+    throw new Error(
+      "DreamCatcher finished the Oura callback step but still did not receive stored tokens. The auth flow did not complete successfully.",
+    );
+  }
+
+  return hydrateDashboard(snapshot, mode, true);
 }
 
 export async function disconnectAndReload(mode: SourceMode): Promise<DashboardPayload> {
-  await disconnectOura();
-  return loadDashboard(mode);
+  const snapshot = await disconnectOura();
+  return hydrateDashboard(snapshot, mode, false);
 }
 
 async function hydrateDashboard(

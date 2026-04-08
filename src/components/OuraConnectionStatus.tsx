@@ -5,6 +5,7 @@ interface OuraConnectionStatusProps {
   busyState: "loading" | "refreshing" | "starting-connect" | "finishing-connect" | "disconnecting" | null;
   authLaunch: OuraAuthLaunch | null;
   callbackUrl: string;
+  authError: string | null;
   onConnect: () => void;
   onCallbackUrlChange: (value: string) => void;
   onCompleteConnect: () => void;
@@ -16,6 +17,7 @@ export function OuraConnectionStatus({
   busyState,
   authLaunch,
   callbackUrl,
+  authError,
   onConnect,
   onCallbackUrlChange,
   onCompleteConnect,
@@ -90,6 +92,14 @@ export function OuraConnectionStatus({
           </div>
         </div>
       )}
+
+      {authError ? (
+        <div className="alert-list">
+          <p className="alert alert--error">
+            <strong>Oura connection failed:</strong> {authError}
+          </p>
+        </div>
+      ) : null}
 
       <div className="button-row">
         <button className="button button--primary" disabled={!isConfigured || isBusy} onClick={onConnect}>

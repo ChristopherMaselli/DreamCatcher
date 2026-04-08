@@ -16,13 +16,13 @@ const SLEEP_ENDPOINT: &str = "https://api.ouraring.com/v2/usercollection/sleep";
 
 pub async fn refresh_sleep_cache(app: &AppHandle) -> Result<CachedSleepPayload> {
     let live_env = AppEnv::load().require_live()?;
-    let mut tokens = ensure_valid_tokens(&live_env).await?;
+    let mut tokens = ensure_valid_tokens(app, &live_env).await?;
     let mut response = fetch_sleep_response(&tokens.access_token).await?;
 
     if response.status() == StatusCode::UNAUTHORIZED {
         if let Some(refresh_token) = tokens.refresh_token.clone() {
             tokens = auth::refresh_access_token(&live_env, &refresh_token).await?;
-            storage::save_tokens(&tokens)?;
+            storage::save_tokens(app, &tokens)?;
             response = fetch_sleep_response(&tokens.access_token).await?;
         }
     }
@@ -38,8 +38,6 @@ pub async fn refresh_sleep_cache(app: &AppHandle) -> Result<CachedSleepPayload> 
         .await
         .context("Oura sleep response was not valid JSON")?;
 
-    // Keep the Rust side permissive because Oura may add fields over time.
-    // The TypeScript adapter handles stage-string interpretation and REM grouping.
     let sessions = parse_sessions(raw_value)?;
     let payload = CachedSleepPayload {
         fetched_at: Utc::now().to_rfc3339(),
@@ -52,14 +50,14 @@ pub async fn refresh_sleep_cache(app: &AppHandle) -> Result<CachedSleepPayload> 
     Ok(payload)
 }
 
-async fn ensure_valid_tokens(env: &LiveEnv) -> Result<TokenBundle> {
-    let tokens = storage::load_tokens()?
+async fn ensure_valid_tokens(app: &AppHandle, env: &LiveEnv) -> Result<TokenBundle> {
+    let tokens = storage::load_tokens(app)?
         .context("Connect Oura first before requesting live sleep data.")?;
 
     if tokens.is_expired() {
         if let Some(refresh_token) = tokens.refresh_token.clone() {
             let refreshed = auth::refresh_access_token(env, &refresh_token).await?;
-            storage::save_tokens(&refreshed)?;
+            storage::save_tokens(app, &refreshed)?;
             Ok(refreshed)
         } else {
             bail!("Stored Oura credentials expired and no refresh token is available.");

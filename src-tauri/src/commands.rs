@@ -6,7 +6,7 @@ use crate::{
     config::AppEnv,
     oura,
     storage,
-    types::{AppSnapshot, AuthStatus, AuthLaunchPayload},
+    types::{AppSnapshot, AuthLaunchPayload, AuthStatus},
 };
 
 #[tauri::command]
@@ -15,28 +15,29 @@ pub async fn get_app_snapshot(app: AppHandle) -> Result<AppSnapshot, String> {
 }
 
 #[tauri::command]
-pub async fn connect_oura() -> Result<AuthLaunchPayload, String> {
+pub async fn connect_oura(app: AppHandle) -> Result<AuthLaunchPayload, String> {
     let live_env = AppEnv::load().require_live().map_err(format_error)?;
-    auth::begin_oauth(&live_env).map_err(format_error)
+    auth::begin_oauth(&app, &live_env).map_err(format_error)
 }
 
 #[tauri::command]
 pub async fn finish_oura_connect(app: AppHandle, callback_url: String) -> Result<AppSnapshot, String> {
     let live_env = AppEnv::load().require_live().map_err(format_error)?;
-    let tokens = auth::complete_oauth_from_callback(&live_env, &callback_url)
+    let tokens = auth::complete_oauth_from_callback(&app, &live_env, &callback_url)
         .await
         .map_err(format_error)?;
-    storage::save_tokens(&tokens).map_err(format_error)?;
+    storage::save_tokens(&app, &tokens).map_err(format_error)?;
     snapshot(&app).map_err(format_error)
 }
 
 #[tauri::command]
 pub async fn disconnect_oura(app: AppHandle) -> Result<AppSnapshot, String> {
-    if let Some(tokens) = storage::load_tokens().map_err(format_error)? {
+    if let Some(tokens) = storage::load_tokens(&app).map_err(format_error)? {
         let _ = auth::revoke_access_token(&tokens.access_token).await;
     }
 
-    storage::clear_tokens().map_err(format_error)?;
+    storage::clear_tokens(&app).map_err(format_error)?;
+    storage::clear_pending_oauth(&app).map_err(format_error)?;
     storage::clear_cache(&app).map_err(format_error)?;
     snapshot(&app).map_err(format_error)
 }
@@ -51,7 +52,7 @@ pub async fn refresh_live_data(app: AppHandle) -> Result<AppSnapshot, String> {
 
 fn snapshot(app: &AppHandle) -> Result<AppSnapshot> {
     let env = AppEnv::load();
-    let tokens = storage::load_tokens()?;
+    let tokens = storage::load_tokens(app)?;
     let auth = AuthStatus {
         connected: tokens.is_some(),
         has_refresh_token: tokens

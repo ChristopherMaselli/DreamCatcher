@@ -1,28 +1,22 @@
-use std::sync::{Mutex, OnceLock};
-
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use chrono::{Duration as ChronoDuration, Utc};
 use rand::{distributions::Alphanumeric, Rng};
 use reqwest::Client;
+use tauri::AppHandle;
 use tracing::warn;
 use url::Url;
 
 use crate::{
     config::LiveEnv,
-    types::{AuthLaunchPayload, OAuthTokenResponse, TokenBundle},
+    storage,
+    types::{AuthLaunchPayload, OAuthTokenResponse, PendingOAuth, TokenBundle},
 };
 
 const AUTH_URL: &str = "https://cloud.ouraring.com/oauth/authorize";
 const TOKEN_URL: &str = "https://api.ouraring.com/oauth/token";
 const REVOKE_URL: &str = "https://api.ouraring.com/oauth/revoke";
 
-#[derive(Debug, Clone)]
-struct PendingOAuth {
-    state: String,
-    redirect_uri: String,
-}
-
-pub fn begin_oauth(env: &LiveEnv) -> Result<AuthLaunchPayload> {
+pub fn begin_oauth(app: &AppHandle, env: &LiveEnv) -> Result<AuthLaunchPayload> {
     let redirect = Url::parse(&env.redirect_uri).context("Invalid Oura redirect URI")?;
     if redirect.scheme() != "https" {
         bail!("DreamCatcher's hosted callback flow expects an HTTPS redirect URI.");
@@ -30,14 +24,12 @@ pub fn begin_oauth(env: &LiveEnv) -> Result<AuthLaunchPayload> {
 
     let state = build_state_token();
     let authorize_url = build_authorize_url(env, &state)?;
-
-    let mut pending = pending_oauth_store()
-        .lock()
-        .map_err(|_| anyhow!("Could not prepare the Oura sign-in state."))?;
-    *pending = Some(PendingOAuth {
+    let pending = PendingOAuth {
         state,
         redirect_uri: env.redirect_uri.clone(),
-    });
+    };
+
+    storage::save_pending_oauth(app, &pending)?;
 
     webbrowser::open(authorize_url.as_str())
         .context("Could not open the system browser for Oura sign-in")?;
@@ -48,11 +40,8 @@ pub fn begin_oauth(env: &LiveEnv) -> Result<AuthLaunchPayload> {
     })
 }
 
-pub async fn complete_oauth_from_callback(env: &LiveEnv, callback_url: &str) -> Result<TokenBundle> {
-    let pending = pending_oauth_store()
-        .lock()
-        .map_err(|_| anyhow!("Could not read the pending Oura sign-in state."))?
-        .clone()
+pub async fn complete_oauth_from_callback(app: &AppHandle, env: &LiveEnv, callback_url: &str) -> Result<TokenBundle> {
+    let pending = storage::load_pending_oauth(app)?
         .context("Start the Oura sign-in flow first, then paste the final callback URL here.")?;
 
     if pending.redirect_uri != env.redirect_uri {
@@ -62,7 +51,7 @@ pub async fn complete_oauth_from_callback(env: &LiveEnv, callback_url: &str) -> 
     let code = extract_authorization_code(callback_url, &env.redirect_uri, &pending.state)?;
     let tokens = exchange_authorization_code(env, &code).await?;
 
-    clear_pending_oauth()?;
+    storage::clear_pending_oauth(app)?;
     Ok(tokens)
 }
 
@@ -189,19 +178,6 @@ fn extract_authorization_code(callback_url: &str, expected_redirect_uri: &str, e
         .find(|(key, _)| key == "code")
         .map(|(_, value)| value.to_string())
         .context("The pasted callback URL did not include an Oura authorization code.")
-}
-
-fn clear_pending_oauth() -> Result<()> {
-    let mut pending = pending_oauth_store()
-        .lock()
-        .map_err(|_| anyhow!("Could not clear the pending Oura sign-in state."))?;
-    *pending = None;
-    Ok(())
-}
-
-fn pending_oauth_store() -> &'static Mutex<Option<PendingOAuth>> {
-    static PENDING: OnceLock<Mutex<Option<PendingOAuth>>> = OnceLock::new();
-    PENDING.get_or_init(|| Mutex::new(None))
 }
 
 fn build_state_token() -> String {
