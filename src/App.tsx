@@ -20,6 +20,7 @@ import type { DashboardPayload, OuraAuthLaunch, SourceMode } from "./types/app";
 
 const SOURCE_MODE_STORAGE_KEY = "dreamcatcher-source-mode";
 const BEDTIME_CUTOFF_STORAGE_KEY = "dreamcatcher-bedtime-cutoff";
+const SHOW_MISSING_DAYS_STORAGE_KEY = "dreamcatcher-show-missing-days";
 const DEFAULT_BEDTIME_CUTOFF_MINUTES = 150;
 
 type DashboardTab = "tonight" | "history";
@@ -27,7 +28,8 @@ type BusyState = "loading" | "refreshing" | "starting-connect" | "finishing-conn
 
 export default function App() {
   const [mode, setMode] = useState<SourceMode>(readStoredMode());
-  const [activeTab, setActiveTab] = useState<DashboardTab>("history");
+  const [activeTab, setActiveTab] = useState<DashboardTab>("tonight");
+  const [showMissingDays, setShowMissingDays] = useState<boolean>(readStoredShowMissingDays());
   const [payload, setPayload] = useState<DashboardPayload | null>(null);
   const [selectedDayId, setSelectedDayId] = useState<string | null>(null);
   const [includedDayMap, setIncludedDayMap] = useState<Record<string, boolean>>({});
@@ -79,11 +81,15 @@ export default function App() {
     }
 
     setSelectedDayId((current) => {
-      if (current && payload.days.some((day) => day.id === current)) {
+      if (current && payload.days.some((day) => day.id === current && (showMissingDays || day.status !== "missing"))) {
         return current;
       }
 
-      return payload.days.find((day) => day.status !== "missing")?.id ?? payload.days[0]?.id ?? null;
+      if (showMissingDays) {
+        return payload.days[0]?.id ?? null;
+      }
+
+      return payload.days.find((day) => day.status !== "missing")?.id ?? null;
     });
 
     setIncludedDayMap((current) => {
@@ -93,25 +99,29 @@ export default function App() {
       }
       return next;
     });
-  }, [payload]);
+  }, [payload, showMissingDays]);
 
   const days = payload?.days ?? [];
+  const visibleDays = useMemo(
+    () => (showMissingDays ? days : days.filter((day) => day.status !== "missing")),
+    [days, showMissingDays],
+  );
+  const suggestionDays = useMemo(() => days.filter((day) => day.status !== "missing"), [days]);
   const includedDayIds = useMemo(
-    () => days.filter((day) => includedDayMap[day.id] !== false).map((day) => day.id),
-    [days, includedDayMap],
+    () => suggestionDays.filter((day) => includedDayMap[day.id] !== false).map((day) => day.id),
+    [suggestionDays, includedDayMap],
   );
   const selectedDay =
-    days.find((day) => day.id === selectedDayId) ??
-    days.find((day) => day.status !== "missing") ??
-    days[0] ??
+    visibleDays.find((day) => day.id === selectedDayId) ??
+    visibleDays[0] ??
     null;
   const suggestion = useMemo(
     () =>
-      buildWildSuggestion(days, {
+      buildWildSuggestion(suggestionDays, {
         includedDayIds,
         bedtimeCutoffMinutes,
       }),
-    [days, includedDayIds, bedtimeCutoffMinutes],
+    [suggestionDays, includedDayIds, bedtimeCutoffMinutes],
   );
   const selectedCanInclude = selectedDay ? canUseDayForSuggestion(selectedDay) : false;
   const selectedIncluded = selectedDay ? includedDayMap[selectedDay.id] !== false : false;
@@ -132,6 +142,11 @@ export default function App() {
   function handleCutoffChange(minutes: number) {
     localStorage.setItem(BEDTIME_CUTOFF_STORAGE_KEY, String(minutes));
     setBedtimeCutoffMinutes(minutes);
+  }
+
+  function handleShowMissingDaysChange(checked: boolean) {
+    localStorage.setItem(SHOW_MISSING_DAYS_STORAGE_KEY, checked ? "true" : "false");
+    setShowMissingDays(checked);
   }
 
   async function handleRefresh() {
@@ -213,30 +228,6 @@ export default function App() {
         </button>
       }
     >
-      <section className="dashboard-top">
-        <SelectedSleepPanel
-          day={selectedDay}
-          includedInSuggestion={selectedIncluded}
-          canInclude={selectedCanInclude}
-          onIncludedChange={(included) => {
-            if (selectedDay) {
-              handleIncludedChange(selectedDay.id, included);
-            }
-          }}
-        />
-        <OuraConnectionStatus
-          snapshot={payload?.snapshot ?? emptySnapshot}
-          busyState={busyState}
-          authLaunch={authLaunch}
-          callbackUrl={callbackUrl}
-          authError={authError}
-          onConnect={handleConnect}
-          onCallbackUrlChange={setCallbackUrl}
-          onCompleteConnect={handleFinishConnect}
-          onDisconnect={handleDisconnect}
-        />
-      </section>
-
       <div className="tab-row" role="tablist" aria-label="DreamCatcher views">
         <button
           className={`tab-button ${activeTab === "history" ? "tab-button--active" : ""}`}
@@ -253,26 +244,73 @@ export default function App() {
       </div>
 
       {activeTab === "history" ? (
-        <section className="dashboard-main dashboard-main--history">
-          <DashboardCalendar
-            days={days}
-            selectedDayId={selectedDay?.id ?? null}
-            includedDayIds={includedDayIds}
-            onSelectDay={setSelectedDayId}
-            onIncludedChange={handleIncludedChange}
+        <section className="dashboard-flow">
+          <SelectedSleepPanel
+            day={selectedDay}
+            includedInSuggestion={selectedIncluded}
+            canInclude={selectedCanInclude}
+            onIncludedChange={(included) => {
+              if (selectedDay) {
+                handleIncludedChange(selectedDay.id, included);
+              }
+            }}
           />
-          <div className="dashboard-stack">
+
+          <section className="panel panel--section">
+            <div className="panel__header panel__header--stacked">
+              <div>
+                <p className="panel__eyebrow">Visible Nights</p>
+                <h2>Your real sleep days this week</h2>
+              </div>
+              <div className="panel__header-actions">
+                <p className="panel__note">
+                  {showMissingDays
+                    ? "Showing the full 7-day week, including empty dates."
+                    : "Empty dates are hidden. Only nights that actually returned sleep data appear here."}
+                </p>
+                <label className={`toggle-chip ${showMissingDays ? "toggle-chip--checked" : ""}`}>
+                  <input
+                    type="checkbox"
+                    checked={showMissingDays}
+                    onChange={(event) => handleShowMissingDaysChange(event.target.checked)}
+                  />
+                  <span>Show empty dates</span>
+                </label>
+              </div>
+            </div>
+            <DashboardCalendar
+              days={days}
+              selectedDayId={selectedDay?.id ?? null}
+              includedDayIds={includedDayIds}
+              showMissingDays={showMissingDays}
+              onSelectDay={setSelectedDayId}
+              onIncludedChange={handleIncludedChange}
+            />
+          </section>
+
+          <section className="dashboard-bottom">
             <SourceModeToggle mode={mode} busy={isBusy} onModeChange={handleModeChange} />
-            <section className="panel">
-              <div className="panel__header">
+            <OuraConnectionStatus
+              snapshot={payload?.snapshot ?? emptySnapshot}
+              busyState={busyState}
+              authLaunch={authLaunch}
+              callbackUrl={callbackUrl}
+              authError={authError}
+              onConnect={handleConnect}
+              onCallbackUrlChange={setCallbackUrl}
+              onCompleteConnect={handleFinishConnect}
+              onDisconnect={handleDisconnect}
+            />
+          </section>
+
+          {payload?.warnings.length || error ? (
+            <section className="panel panel--section">
+              <div className="panel__header panel__header--stacked">
                 <div>
-                  <p className="panel__eyebrow">History Notes</p>
-                  <h2>How this view works</h2>
+                  <p className="panel__eyebrow">Notes</p>
+                  <h2>Status and warnings</h2>
                 </div>
               </div>
-              <p className="panel__note">
-                Click any day to pin its sleep timestream above. The checkbox on each card decides whether that night contributes to tonight&apos;s WILD estimate.
-              </p>
               {payload?.warnings.length ? (
                 <div className="alert-list">
                   {payload.warnings.map((warning) => (
@@ -284,10 +322,10 @@ export default function App() {
               ) : null}
               {error ? <p className="alert alert--error">{error}</p> : null}
             </section>
-          </div>
+          ) : null}
         </section>
       ) : (
-        <section className="dashboard-main">
+        <section className="dashboard-flow">
           <WildSuggestionPanel
             suggestion={suggestion}
             source={payload?.source ?? mode}
@@ -295,22 +333,59 @@ export default function App() {
             bedtimeCutoffMinutes={bedtimeCutoffMinutes}
             onCutoffChange={handleCutoffChange}
           />
-          <div className="dashboard-stack">
-            <SourceModeToggle mode={mode} busy={isBusy} onModeChange={handleModeChange} />
-            <section className="panel">
-              <div className="panel__header">
-                <div>
-                  <p className="panel__eyebrow">Algorithm Notes</p>
-                  <h2>What counts tonight</h2>
-                </div>
+
+          <section className="panel panel--section">
+            <div className="panel__header panel__header--stacked">
+              <div>
+                <p className="panel__eyebrow">Eligible Nights</p>
+                <h2>The nights feeding tonight&apos;s estimate</h2>
               </div>
-              <p className="panel__note">
-                DreamCatcher groups contiguous REM epochs from Oura&apos;s 5-minute sleep-stage timeline, highlights the final two blocks before wake, and averages the checked nights that survive your bedtime cutoff.
-              </p>
-              <div className="alert-list">
-                <p className="alert alert--warning">
+              <div className="panel__header-actions">
+                <p className="panel__note">
                   Nights used right now: {suggestion.basisNights}. Unchecked nights: {suggestion.ignoredBySelection}. Past cutoff: {suggestion.ignoredByLateBedtime}.
                 </p>
+                <label className={`toggle-chip ${showMissingDays ? "toggle-chip--checked" : ""}`}>
+                  <input
+                    type="checkbox"
+                    checked={showMissingDays}
+                    onChange={(event) => handleShowMissingDaysChange(event.target.checked)}
+                  />
+                  <span>Show empty dates</span>
+                </label>
+              </div>
+            </div>
+            <DashboardCalendar
+              days={days}
+              selectedDayId={selectedDay?.id ?? null}
+              includedDayIds={includedDayIds}
+              showMissingDays={showMissingDays}
+              onSelectDay={setSelectedDayId}
+              onIncludedChange={handleIncludedChange}
+            />
+          </section>
+
+          <section className="dashboard-bottom">
+            <SourceModeToggle mode={mode} busy={isBusy} onModeChange={handleModeChange} />
+            <OuraConnectionStatus
+              snapshot={payload?.snapshot ?? emptySnapshot}
+              busyState={busyState}
+              authLaunch={authLaunch}
+              callbackUrl={callbackUrl}
+              authError={authError}
+              onConnect={handleConnect}
+              onCallbackUrlChange={setCallbackUrl}
+              onCompleteConnect={handleFinishConnect}
+              onDisconnect={handleDisconnect}
+            />
+          </section>
+
+          {payload?.warnings.length || error ? (
+            <section className="panel panel--section">
+              <div className="panel__header panel__header--stacked">
+                <div>
+                  <p className="panel__eyebrow">Notes</p>
+                  <h2>Status and warnings</h2>
+                </div>
               </div>
               {payload?.warnings.length ? (
                 <div className="alert-list">
@@ -323,7 +398,7 @@ export default function App() {
               ) : null}
               {error ? <p className="alert alert--error">{error}</p> : null}
             </section>
-          </div>
+          ) : null}
         </section>
       )}
     </AppShell>
@@ -367,6 +442,14 @@ function readStoredCutoff(): number {
   return Number.isFinite(stored) && stored >= 60 && stored <= 300
     ? stored
     : DEFAULT_BEDTIME_CUTOFF_MINUTES;
+}
+
+function readStoredShowMissingDays(): boolean {
+  if (typeof localStorage === "undefined") {
+    return false;
+  }
+
+  return localStorage.getItem(SHOW_MISSING_DAYS_STORAGE_KEY) === "true";
 }
 
 function asMessage(reason: unknown): string {

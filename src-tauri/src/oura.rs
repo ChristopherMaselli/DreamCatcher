@@ -69,14 +69,15 @@ async fn ensure_valid_tokens(app: &AppHandle, env: &LiveEnv) -> Result<TokenBund
 
 async fn fetch_sleep_response(access_token: &str) -> Result<reqwest::Response> {
     let today = Local::now().date_naive();
-    let start_date = today - ChronoDuration::days(8);
+    let start_date = today - ChronoDuration::days(9);
+    let end_date = today + ChronoDuration::days(1);
 
     Client::new()
         .get(SLEEP_ENDPOINT)
         .bearer_auth(access_token)
         .query(&[
             ("start_date", start_date.to_string()),
-            ("end_date", today.to_string()),
+            ("end_date", end_date.to_string()),
         ])
         .send()
         .await
